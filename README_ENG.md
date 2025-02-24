@@ -1,6 +1,7 @@
 # Породични Дуел! РГДЕВ - ЕТФ
 
 ![FF_SCREEN_ETF](https://i.imgur.com/0G5n7JX.png)
+![FF_SCREEN2_ETF](https://i.imgur.com/UbtEK7J.png)
 
 **Породични Дуел!** is a Family Feud–style game developed in Python using [Pygame](https://www.pygame.org/). Two teams compete to reveal survey answers, accumulate points, and win rounds by answering questions loaded from text files. This project is designed for educational or event purposes at the Faculty of Electrical Engineering (ЕТФ) and uses Serbian for all in-game texts.
 
