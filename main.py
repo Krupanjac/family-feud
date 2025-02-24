@@ -527,7 +527,7 @@ class FamilyFeudGame:
             modal.fill((50, 50, 50))
             pygame.draw.rect(modal, WHITE, modal.get_rect(), 2)
 
-            modal.blit(font.render("Screen Width:", True, WHITE), (20, 20))
+            modal.blit(font.render("Ширина:", True, WHITE), (20, 20))
             pygame.draw.rect(modal, WHITE, (200, 20, 150, 30), 2)
             text_width = font.render(manual_width, True, WHITE)
             modal.blit(text_width, (205, 25))
@@ -535,7 +535,7 @@ class FamilyFeudGame:
                 cursor_x = 205 + text_width.get_width() + 2
                 pygame.draw.line(modal, WHITE, (cursor_x, 25), (cursor_x, 25 + text_width.get_height()), 2)
 
-            modal.blit(font.render("Screen Height:", True, WHITE), (20, 70))
+            modal.blit(font.render("Висина:", True, WHITE), (20, 70))
             pygame.draw.rect(modal, WHITE, (200, 70, 150, 30), 2)
             text_height = font.render(manual_height, True, WHITE)
             modal.blit(text_height, (205, 75))
@@ -544,7 +544,7 @@ class FamilyFeudGame:
                 pygame.draw.line(modal, WHITE, (cursor_x, 75), (cursor_x, 75 + text_height.get_height()), 2)
 
             # Sound Volume slider
-            modal.blit(font.render("Sound Volume:", True, WHITE), (20, 120))
+            modal.blit(font.render("Звук:", True, WHITE), (20, 120))
             sound_slider_rect = pygame.Rect(200, 120, 300, 20)
             pygame.draw.rect(modal, GRAY, sound_slider_rect)
             sound_ratio = sound_volume / 100
@@ -552,7 +552,7 @@ class FamilyFeudGame:
             pygame.draw.rect(modal, WHITE, (knob_x, 115, 10, 30))
 
             # Music Volume slider
-            modal.blit(font.render("Music Volume:", True, WHITE), (20, 170))
+            modal.blit(font.render("Музика:", True, WHITE), (20, 170))
             music_slider_rect = pygame.Rect(200, 170, 300, 20)
             pygame.draw.rect(modal, GRAY, music_slider_rect)
             music_ratio = music_volume / 100
@@ -560,7 +560,7 @@ class FamilyFeudGame:
             pygame.draw.rect(modal, WHITE, (music_knob_x, 165, 10, 30))
 
             # Fullscreen checkbox
-            modal.blit(font.render("Fullscreen:", True, WHITE), (20, 220))
+            modal.blit(font.render("Пун екран:", True, WHITE), (20, 220))
             pygame.draw.rect(modal, WHITE, (200, 220, 30, 30), 2)
             if fullscreen:
                 pygame.draw.rect(modal, WHITE, (203, 223, 24, 24))
@@ -568,7 +568,7 @@ class FamilyFeudGame:
             save_rect = pygame.Rect(modal_w//2 - 50, modal_h - 60, 100, 30)
             pygame.draw.rect(modal, GRAY, save_rect)
             modal.blit(font.render("Сачувај", True, BLACK), (save_rect.x + 5, save_rect.y + 5))
-            modal.blit(font.render("Press ESC to cancel", True, WHITE), (modal_w//2 - 100, modal_h - 25))
+            modal.blit(font.render("Притисни ESC за повратак назад", True, WHITE), (modal_w//2 - 200, modal_h - 25))
 
             self.screen.fill(BLACK)
             self.draw_background()
