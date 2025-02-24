@@ -1,6 +1,6 @@
 {
     "screen_width": 1200,
     "screen_height": 800,
-    "fullscreen": false,
-    "volume": 99
+    "volume": 100,
+    "fullscreen": false
 }
