@@ -1,13 +1,21 @@
 import pygame, sys, sqlite3, os, math, json, random
 from pygame.locals import KEYDOWN, K_ESCAPE, K_x, QUIT, MOUSEBUTTONDOWN, MOUSEMOTION
 
+def resource_path(relative_path):
+    """Get absolute path to resource, works for development and for PyInstaller onefile."""
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 # ----------------- Constants -----------------
 DEFAULT_SETTINGS = {
     "screen_width": 1200,
     "screen_height": 800,
     "fullscreen": False,
-    "volume": 100,         # Sound effects volume
-    "music_volume": 100    # Music volume
+    "volume": 100,
+    "music_volume": 100
 }
 
 WHITE    = (255, 255, 255)
@@ -21,11 +29,8 @@ YELLOW   = (255, 215, 0)
 
 REGULAR  = 36
 QUESTION = 50
-
 ZOOM_SPEED = 0.0007  # for background effect
-
-# New constant: Shift the question/answers board downward.
-BOARD_VERTICAL_OFFSET = 100
+BOARD_VERTICAL_OFFSET = 100  # Shift the question/answers board downward
 
 # ----------------- Helper Classes -----------------
 class ConfettiParticle:
@@ -59,7 +64,6 @@ class BackgroundEffect:
             return None
         img_w = self.original_bg.get_width()
         img_h = self.original_bg.get_height()
-        # Compute a scale factor so the image covers the entire screen.
         base_scale = max(screen_width / img_w, screen_height / img_h)
         zoom_scale = 1.0 + 0.1 * math.sin(self.zoom_phase)
         final_scale = base_scale * zoom_scale
@@ -79,10 +83,12 @@ class FamilyFeudGame:
         flags = pygame.FULLSCREEN if self.settings["fullscreen"] else 0
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height), flags)
         pygame.display.set_caption("Породични Дуел! РГДЕВ - ЕТФ")
-        favicon_path = "assets/favicon.png"
+        
+        favicon_path = resource_path("assets/favicon.png")
         if os.path.exists(favicon_path):
             icon = pygame.image.load(favicon_path)
             pygame.display.set_icon(icon)
+            
         self.font_regular = pygame.font.SysFont(None, REGULAR)
         self.font_question = pygame.font.SysFont(None, QUESTION)
         self.clock = pygame.time.Clock()
@@ -93,8 +99,7 @@ class FamilyFeudGame:
         if self.wrong_sound:
             self.wrong_sound.set_volume(0.4 * self.settings.get("volume", 100) / 100)
         
-        # ----------------- Load and play background music -----------------
-        music_path = "assets/music.wav"
+        music_path = resource_path("assets/music.wav")
         if os.path.exists(music_path):
             pygame.mixer.music.load(music_path)
             pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
@@ -107,13 +112,11 @@ class FamilyFeudGame:
         self.total_team1 = 0
         self.total_team2 = 0
         self.round_results = []
-
-        # For the glazing (shine) effect on answers:
         self.last_glaze_time = pygame.time.get_ticks()
-        self.glaze_effect_duration = 700  # milliseconds for the animation
+        self.glaze_effect_duration = 700  # milliseconds
         self.active_glaze_index = None
         self.glaze_start_time = None
-        self.last_glazed_index = None  # Track last glazed answer index
+        self.last_glazed_index = None
 
     # Settings I/O
     def load_settings(self):
@@ -129,13 +132,12 @@ class FamilyFeudGame:
 
     # Resource loading
     def load_background(self):
-        bg_filename = "assets/background.jpg"
+        bg_filename = resource_path("assets/background.jpg")
         if os.path.exists(bg_filename):
-            # Load the full-res image and downscale once for performance.
             bg = pygame.image.load(bg_filename).convert()
             current_width, current_height = self.screen.get_size()
             base_scale = max(current_width / bg.get_width(), current_height / bg.get_height())
-            scale_factor = base_scale * 1.1  # add margin for zoom
+            scale_factor = base_scale * 1.1
             new_w = int(bg.get_width() * scale_factor)
             new_h = int(bg.get_height() * scale_factor)
             bg = pygame.transform.smoothscale(bg, (new_w, new_h))
@@ -143,11 +145,12 @@ class FamilyFeudGame:
         else:
             bg = pygame.Surface((self.screen_width, self.screen_height))
             bg.fill(DARK_RED)
-            pygame.draw.circle(bg, YELLOW, (self.screen_width//2, self.screen_height//2), 100)
+            pygame.draw.circle(bg, YELLOW, (self.screen_width // 2, self.screen_height // 2), 100)
             return bg
 
     def load_sound(self, filename):
-        return pygame.mixer.Sound(filename) if os.path.exists(filename) else None
+        path = resource_path(filename)
+        return pygame.mixer.Sound(path) if os.path.exists(path) else None
 
     def init_db(self):
         db_filename = "family_feud.db"
@@ -299,19 +302,13 @@ class FamilyFeudGame:
     def draw_board(self, question, answers, strikes, state, active_team):
         self.screen.fill(BLACK)
         self.draw_background()
-
-        # Draw current score.
         score_text = f"Резултат - {self.team1_name}: {self.total_team1} | {self.team2_name}: {self.total_team2}"
         self.screen.blit(self.font_regular.render(score_text, True, WHITE),
                          (self.screen_width - self.font_regular.size(score_text)[0] - 20, 20))
-
-        # Draw active team indicator.
         active_text = f"Активни тим: {self.team1_name if active_team == 1 else self.team2_name}"
         color = RED if active_team == 1 else BLUE
         self.screen.blit(self.font_regular.render(active_text, True, color),
                          (self.screen_width - self.font_regular.size(active_text)[0] - 20, 60))
-        
-        # === Draw Question Box ===
         question_font = self.font_question
         q_surf = question_font.render(question, True, BLACK)
         padding = 20
@@ -326,11 +323,9 @@ class FamilyFeudGame:
         pygame.draw.rect(self.screen, WHITE, q_rect, border_radius=8)
         pygame.draw.rect(self.screen, WHITE, q_rect, 2, border_radius=8)
         self.screen.blit(q_surf, (q_rect.x + padding, q_rect.y + padding))
-        
         answer_y = question_box_y + q_box_height + gap
         rects = []
         current_time = pygame.time.get_ticks() / 500
-
         if len(answers) > 4:
             rows = math.ceil(len(answers) / 2)
             col_w = (self.screen_width - 150) // 2
@@ -352,8 +347,7 @@ class FamilyFeudGame:
                         else:
                             text = f"{idx+1}."
                         text_surf = self.font_regular.render(text, True, BLACK)
-                        self.screen.blit(text_surf,
-                                         (rect.x + 10, rect.y + (50 - self.font_regular.get_height()) // 2))
+                        self.screen.blit(text_surf, (rect.x + 10, rect.y + (50 - self.font_regular.get_height()) // 2))
                         rects.append(rect)
         else:
             for i, ans in enumerate(answers):
@@ -369,25 +363,18 @@ class FamilyFeudGame:
                 else:
                     text = f"{i+1}."
                 text_surf = self.font_regular.render(text, True, BLACK)
-                self.screen.blit(text_surf,
-                                 (rect.x + 10, rect.y + (50 - self.font_regular.get_height()) // 2))
+                self.screen.blit(text_surf, (rect.x + 10, rect.y + (50 - self.font_regular.get_height()) // 2))
                 rects.append(rect)
-
-        # ----- Glazing (shine) Effect on Answers -----
         now = pygame.time.get_ticks()
-        # add random glaze time between 0.5 and 5 seconds
         time_to_next_glaze = random.randint(1500, 5000)
-
         if self.active_glaze_index is None and now - self.last_glaze_time >= time_to_next_glaze and len(rects) > 0:
             possible_indices = list(range(len(rects)))
             if self.last_glazed_index is not None and len(rects) > 1:
-                # Exclude previous index to prevent duplicate glaze on the same answer.
                 if self.last_glazed_index in possible_indices:
                     possible_indices.remove(self.last_glazed_index)
             self.active_glaze_index = random.choice(possible_indices)
             self.glaze_start_time = now
             self.last_glaze_time = now
-
         if self.active_glaze_index is not None:
             progress = (now - self.glaze_start_time) / self.glaze_effect_duration
             if progress < 1.0:
@@ -402,22 +389,16 @@ class FamilyFeudGame:
                 self.last_glazed_index = self.active_glaze_index
                 self.active_glaze_index = None
                 self.glaze_start_time = None
-        # ------------------------------------------------
-
-        # Draw strikes indicator.
         strikes_text = f"Погрешних: {strikes}"
         self.screen.blit(self.font_regular.render(strikes_text, True, RED), (50, self.screen_height - 50))
-
         if state == "opponent":
             opp_text = "Шанса противника!"
             self.screen.blit(self.font_regular.render(opp_text, True, BLUE), (50, self.screen_height - 100))
-
         self.draw_footer()
         pygame.display.flip()
         return rects
 
     def settings_menu(self):
-        # Save original settings in case of cancelation.
         orig_settings = {
             "screen_width": self.settings.get("screen_width", 1200),
             "screen_height": self.settings.get("screen_height", 800),
@@ -425,21 +406,17 @@ class FamilyFeudGame:
             "music_volume": self.settings.get("music_volume", 100),
             "fullscreen": self.settings.get("fullscreen", False)
         }
-        # Increase modal height to fit extra slider.
         modal_w, modal_h = 600, 500
         current_width, current_height = self.screen.get_size()
         modal_x = (current_width - modal_w) // 2
         modal_y = (current_height - modal_h) // 2
-
         manual_width = str(self.settings.get("screen_width", 1200))
         manual_height = str(self.settings.get("screen_height", 800))
         sound_volume = self.settings.get("volume", 100)
         music_volume = self.settings.get("music_volume", 100)
         fullscreen = self.settings.get("fullscreen", False)
-
         width_active = False
         height_active = False
-
         font = pygame.font.SysFont(None, 32)
         canceled = False
         running = True
@@ -499,7 +476,7 @@ class FamilyFeudGame:
                     else:
                         width_active = False
                         height_active = False
-                    save_rect = pygame.Rect(modal_w//2 - 50, modal_h - 60, 100, 40)
+                    save_rect = pygame.Rect(modal_w // 2 - 50, modal_h - 60, 100, 40)
                     if save_rect.collidepoint(rel_x, rel_y):
                         running = False
                 elif event.type == MOUSEMOTION and event.buttons[0]:
@@ -522,11 +499,9 @@ class FamilyFeudGame:
                         if new_volume != music_volume:
                             music_volume = new_volume
                             pygame.mixer.music.set_volume(music_volume / 100)
-
             modal = pygame.Surface((modal_w, modal_h))
             modal.fill((50, 50, 50))
             pygame.draw.rect(modal, WHITE, modal.get_rect(), 2)
-
             modal.blit(font.render("Ширина:", True, WHITE), (20, 20))
             pygame.draw.rect(modal, WHITE, (200, 20, 150, 30), 2)
             text_width = font.render(manual_width, True, WHITE)
@@ -534,7 +509,6 @@ class FamilyFeudGame:
             if width_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_width.get_width() + 2
                 pygame.draw.line(modal, WHITE, (cursor_x, 25), (cursor_x, 25 + text_width.get_height()), 2)
-
             modal.blit(font.render("Висина:", True, WHITE), (20, 70))
             pygame.draw.rect(modal, WHITE, (200, 70, 150, 30), 2)
             text_height = font.render(manual_height, True, WHITE)
@@ -542,43 +516,33 @@ class FamilyFeudGame:
             if height_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_height.get_width() + 2
                 pygame.draw.line(modal, WHITE, (cursor_x, 75), (cursor_x, 75 + text_height.get_height()), 2)
-
-            # Sound Volume slider
             modal.blit(font.render("Звук:", True, WHITE), (20, 120))
             sound_slider_rect = pygame.Rect(200, 120, 300, 20)
             pygame.draw.rect(modal, GRAY, sound_slider_rect)
             sound_ratio = sound_volume / 100
             knob_x = 200 + int(sound_ratio * 300) - 5
             pygame.draw.rect(modal, WHITE, (knob_x, 115, 10, 30))
-
-            # Music Volume slider
             modal.blit(font.render("Музика:", True, WHITE), (20, 170))
             music_slider_rect = pygame.Rect(200, 170, 300, 20)
             pygame.draw.rect(modal, GRAY, music_slider_rect)
             music_ratio = music_volume / 100
             music_knob_x = 200 + int(music_ratio * 300) - 5
             pygame.draw.rect(modal, WHITE, (music_knob_x, 165, 10, 30))
-
-            # Fullscreen checkbox
             modal.blit(font.render("Пун екран:", True, WHITE), (20, 220))
             pygame.draw.rect(modal, WHITE, (200, 220, 30, 30), 2)
             if fullscreen:
                 pygame.draw.rect(modal, WHITE, (203, 223, 24, 24))
-
-            save_rect = pygame.Rect(modal_w//2 - 50, modal_h - 60, 100, 30)
+            save_rect = pygame.Rect(modal_w // 2 - 50, modal_h - 60, 100, 30)
             pygame.draw.rect(modal, GRAY, save_rect)
             modal.blit(font.render("Сачувај", True, BLACK), (save_rect.x + 5, save_rect.y + 5))
-            modal.blit(font.render("Притисни ESC за повратак назад", True, WHITE), (modal_w//2 - 200, modal_h - 25))
-
+            modal.blit(font.render("Притисни ESC за повратак назад", True, WHITE), (modal_w // 2 - 200, modal_h - 25))
             self.screen.fill(BLACK)
             self.draw_background()
             self.screen.blit(modal, (modal_x, modal_y))
             pygame.display.flip()
             self.clock.tick(60)
-
         if canceled:
             return orig_settings
-
         try:
             new_width = int(manual_width)
         except ValueError:
