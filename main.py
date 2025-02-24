@@ -6,7 +6,8 @@ DEFAULT_SETTINGS = {
     "screen_width": 1200,
     "screen_height": 800,
     "fullscreen": False,
-    "volume": 100
+    "volume": 100,         # Sound effects volume
+    "music_volume": 100    # Music volume
 }
 
 WHITE    = (255, 255, 255)
@@ -22,6 +23,9 @@ REGULAR  = 36
 QUESTION = 50
 
 ZOOM_SPEED = 0.0007  # for background effect
+
+# New constant: Shift the question/answers board downward.
+BOARD_VERTICAL_OFFSET = 100
 
 # ----------------- Helper Classes -----------------
 class ConfettiParticle:
@@ -88,6 +92,14 @@ class FamilyFeudGame:
             self.correct_sound.set_volume(self.settings.get("volume", 100) / 100)
         if self.wrong_sound:
             self.wrong_sound.set_volume(0.4 * self.settings.get("volume", 100) / 100)
+        
+        # ----------------- Load and play background music -----------------
+        music_path = "assets/music.wav"
+        if os.path.exists(music_path):
+            pygame.mixer.music.load(music_path)
+            pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
+            pygame.mixer.music.play(-1)  # loop indefinitely
+
         self.conn = self.init_db()
         self.team1_name, self.team2_name = self.load_team_names()
         self.background = self.load_background()
@@ -95,6 +107,13 @@ class FamilyFeudGame:
         self.total_team1 = 0
         self.total_team2 = 0
         self.round_results = []
+
+        # For the glazing (shine) effect on answers:
+        self.last_glaze_time = pygame.time.get_ticks()
+        self.glaze_effect_duration = 700  # milliseconds for the animation
+        self.active_glaze_index = None
+        self.glaze_start_time = None
+        self.last_glazed_index = None  # Track last glazed answer index
 
     # Settings I/O
     def load_settings(self):
@@ -291,15 +310,26 @@ class FamilyFeudGame:
         color = RED if active_team == 1 else BLUE
         self.screen.blit(self.font_regular.render(active_text, True, color),
                          (self.screen_width - self.font_regular.size(active_text)[0] - 20, 60))
-
-        # Draw the question.
-        question_surf = self.font_question.render(question, True, BLACK)
-        question_y = (self.screen_height - question_surf.get_height() - len(answers) * 60) // 2
-        self.screen.blit(question_surf, ((self.screen_width - question_surf.get_width()) // 2, question_y))
-
+        
+        # === Draw Question Box ===
+        question_font = self.font_question
+        q_surf = question_font.render(question, True, BLACK)
+        padding = 20
+        q_box_width = q_surf.get_width() + padding * 2
+        q_box_height = q_surf.get_height() + padding * 2
+        gap = 20
+        total_content_height = q_box_height + gap + len(answers) * 60
+        question_box_y = (self.screen_height - total_content_height) // 2 + BOARD_VERTICAL_OFFSET
+        q_rect = pygame.Rect((self.screen_width - q_box_width) // 2, question_box_y, q_box_width, q_box_height)
+        shadow_rect = q_rect.move(3, 3)
+        pygame.draw.rect(self.screen, (30, 30, 30), shadow_rect, border_radius=8)
+        pygame.draw.rect(self.screen, WHITE, q_rect, border_radius=8)
+        pygame.draw.rect(self.screen, WHITE, q_rect, 2, border_radius=8)
+        self.screen.blit(q_surf, (q_rect.x + padding, q_rect.y + padding))
+        
+        answer_y = question_box_y + q_box_height + gap
         rects = []
-        current_time = pygame.time.get_ticks() / 500  # used in pulsing border animation
-        answer_y = question_y + question_surf.get_height() + 20
+        current_time = pygame.time.get_ticks() / 500
 
         if len(answers) > 4:
             rows = math.ceil(len(answers) / 2)
@@ -311,13 +341,10 @@ class FamilyFeudGame:
                     if idx < len(answers):
                         x = left_x if col == 0 else right_x
                         rect = pygame.Rect(x, y, col_w, 50)
-                        # Draw drop shadow
                         shadow_rect = rect.move(3, 3)
                         pygame.draw.rect(self.screen, (30, 30, 30), shadow_rect, border_radius=8)
-                        # Draw rounded answer box
                         pygame.draw.rect(self.screen, GRAY, rect, border_radius=8)
                         pygame.draw.rect(self.screen, WHITE, rect, 2, border_radius=8)
-                        # Draw pulsing border if revealed
                         if answers[idx]["revealed"]:
                             pulse = int(5 * abs(math.sin(current_time)))
                             pygame.draw.rect(self.screen, YELLOW, rect.inflate(pulse, pulse), 4, border_radius=8)
@@ -331,13 +358,10 @@ class FamilyFeudGame:
         else:
             for i, ans in enumerate(answers):
                 rect = pygame.Rect(50, answer_y + i * 60, self.screen_width - 100, 50)
-                # Draw drop shadow
                 shadow_rect = rect.move(3, 3)
                 pygame.draw.rect(self.screen, (30, 30, 30), shadow_rect, border_radius=8)
-                # Draw rounded answer box
                 pygame.draw.rect(self.screen, GRAY, rect, border_radius=8)
                 pygame.draw.rect(self.screen, WHITE, rect, 2, border_radius=8)
-                # Draw pulsing border if revealed
                 if ans["revealed"]:
                     pulse = int(5 * abs(math.sin(current_time)))
                     pygame.draw.rect(self.screen, YELLOW, rect.inflate(pulse, pulse), 4, border_radius=8)
@@ -349,11 +373,41 @@ class FamilyFeudGame:
                                  (rect.x + 10, rect.y + (50 - self.font_regular.get_height()) // 2))
                 rects.append(rect)
 
+        # ----- Glazing (shine) Effect on Answers -----
+        now = pygame.time.get_ticks()
+        # add random glaze time between 0.5 and 5 seconds
+        time_to_next_glaze = random.randint(1500, 5000)
+
+        if self.active_glaze_index is None and now - self.last_glaze_time >= time_to_next_glaze and len(rects) > 0:
+            possible_indices = list(range(len(rects)))
+            if self.last_glazed_index is not None and len(rects) > 1:
+                # Exclude previous index to prevent duplicate glaze on the same answer.
+                if self.last_glazed_index in possible_indices:
+                    possible_indices.remove(self.last_glazed_index)
+            self.active_glaze_index = random.choice(possible_indices)
+            self.glaze_start_time = now
+            self.last_glaze_time = now
+
+        if self.active_glaze_index is not None:
+            progress = (now - self.glaze_start_time) / self.glaze_effect_duration
+            if progress < 1.0:
+                effect_width = 30
+                effect_alpha = 150
+                target_rect = rects[self.active_glaze_index]
+                x_offset = int((target_rect.width - effect_width) * progress)
+                glaze_surface = pygame.Surface((effect_width, target_rect.height), pygame.SRCALPHA)
+                glaze_surface.fill((255, 255, 255, effect_alpha))
+                self.screen.blit(glaze_surface, (target_rect.x + x_offset, target_rect.y))
+            else:
+                self.last_glazed_index = self.active_glaze_index
+                self.active_glaze_index = None
+                self.glaze_start_time = None
+        # ------------------------------------------------
+
         # Draw strikes indicator.
         strikes_text = f"Погрешних: {strikes}"
         self.screen.blit(self.font_regular.render(strikes_text, True, RED), (50, self.screen_height - 50))
 
-        # In case of opponent state, show additional message.
         if state == "opponent":
             opp_text = "Шанса противника!"
             self.screen.blit(self.font_regular.render(opp_text, True, BLUE), (50, self.screen_height - 100))
@@ -368,21 +422,21 @@ class FamilyFeudGame:
             "screen_width": self.settings.get("screen_width", 1200),
             "screen_height": self.settings.get("screen_height", 800),
             "volume": self.settings.get("volume", 100),
+            "music_volume": self.settings.get("music_volume", 100),
             "fullscreen": self.settings.get("fullscreen", False)
         }
-        # Modal dimensions
-        modal_w, modal_h = 600, 400
+        # Increase modal height to fit extra slider.
+        modal_w, modal_h = 600, 500
         current_width, current_height = self.screen.get_size()
         modal_x = (current_width - modal_w) // 2
         modal_y = (current_height - modal_h) // 2
 
-        # Initialize local values (as strings for text input)
         manual_width = str(self.settings.get("screen_width", 1200))
         manual_height = str(self.settings.get("screen_height", 800))
-        volume = self.settings.get("volume", 100)
+        sound_volume = self.settings.get("volume", 100)
+        music_volume = self.settings.get("music_volume", 100)
         fullscreen = self.settings.get("fullscreen", False)
 
-        # Flags for input boxes
         width_active = False
         height_active = False
 
@@ -394,7 +448,6 @@ class FamilyFeudGame:
                 if event.type == QUIT:
                     pygame.quit(); sys.exit()
                 elif event.type == KEYDOWN:
-                    # If an input box is active, update the corresponding string.
                     if width_active:
                         if event.key == pygame.K_RETURN:
                             width_active = False
@@ -410,38 +463,42 @@ class FamilyFeudGame:
                         elif event.unicode.isdigit():
                             manual_height += event.unicode
                     elif event.key == K_ESCAPE:
-                        # Cancel modifications.
                         canceled = True
                         running = False
                 elif event.type == MOUSEBUTTONDOWN:
                     mx, my = event.pos
-                    # Translate mouse coordinates relative to modal
                     rel_x = mx - modal_x
                     rel_y = my - modal_y
                     width_box = pygame.Rect(200, 20, 150, 30)
                     height_box = pygame.Rect(200, 70, 150, 30)
-                    volume_slider = pygame.Rect(200, 120, 300, 20)
-                    checkbox = pygame.Rect(200, 170, 30, 30)
+                    sound_slider = pygame.Rect(200, 120, 300, 20)
+                    music_slider = pygame.Rect(200, 170, 300, 20)
+                    checkbox = pygame.Rect(200, 220, 30, 30)
                     if width_box.collidepoint(rel_x, rel_y):
                         width_active = True
                         height_active = False
                     elif height_box.collidepoint(rel_x, rel_y):
                         height_active = True
                         width_active = False
-                    elif volume_slider.collidepoint(rel_x, rel_y):
-                        ratio = (rel_x - volume_slider.x) / volume_slider.width
+                    elif sound_slider.collidepoint(rel_x, rel_y):
+                        ratio = (rel_x - sound_slider.x) / sound_slider.width
                         new_volume = int(min(max(ratio, 0), 1) * 100)
-                        if new_volume != volume:
-                            volume = new_volume
+                        if new_volume != sound_volume:
+                            sound_volume = new_volume
                             if self.wrong_sound:
-                                self.wrong_sound.set_volume(0.4 * (volume / 100))
+                                self.wrong_sound.set_volume(0.4 * (sound_volume / 100))
                                 self.wrong_sound.play()
+                    elif music_slider.collidepoint(rel_x, rel_y):
+                        ratio = (rel_x - music_slider.x) / music_slider.width
+                        new_volume = int(min(max(ratio, 0), 1) * 100)
+                        if new_volume != music_volume:
+                            music_volume = new_volume
+                            pygame.mixer.music.set_volume(music_volume / 100)
                     elif checkbox.collidepoint(rel_x, rel_y):
                         fullscreen = not fullscreen
                     else:
                         width_active = False
                         height_active = False
-                    # Check if "Save" button is clicked
                     save_rect = pygame.Rect(modal_w//2 - 50, modal_h - 60, 100, 40)
                     if save_rect.collidepoint(rel_x, rel_y):
                         running = False
@@ -449,22 +506,27 @@ class FamilyFeudGame:
                     mx, my = event.pos
                     rel_x = mx - modal_x
                     rel_y = my - modal_y
-                    volume_slider = pygame.Rect(200, 120, 300, 20)
-                    if volume_slider.collidepoint(rel_x, rel_y):
-                        ratio = (rel_x - volume_slider.x) / volume_slider.width
+                    sound_slider = pygame.Rect(200, 120, 300, 20)
+                    music_slider = pygame.Rect(200, 170, 300, 20)
+                    if sound_slider.collidepoint(rel_x, rel_y):
+                        ratio = (rel_x - sound_slider.x) / sound_slider.width
                         new_volume = int(min(max(ratio, 0), 1) * 100)
-                        if new_volume != volume:
-                            volume = new_volume
+                        if new_volume != sound_volume:
+                            sound_volume = new_volume
                             if self.wrong_sound:
-                                self.wrong_sound.set_volume(0.4 * (volume / 100))
+                                self.wrong_sound.set_volume(0.4 * (sound_volume / 100))
                                 self.wrong_sound.play()
+                    elif music_slider.collidepoint(rel_x, rel_y):
+                        ratio = (rel_x - music_slider.x) / music_slider.width
+                        new_volume = int(min(max(ratio, 0), 1) * 100)
+                        if new_volume != music_volume:
+                            music_volume = new_volume
+                            pygame.mixer.music.set_volume(music_volume / 100)
 
-            # Draw modal
             modal = pygame.Surface((modal_w, modal_h))
             modal.fill((50, 50, 50))
             pygame.draw.rect(modal, WHITE, modal.get_rect(), 2)
 
-            # "Screen Width" label and input field
             modal.blit(font.render("Screen Width:", True, WHITE), (20, 20))
             pygame.draw.rect(modal, WHITE, (200, 20, 150, 30), 2)
             text_width = font.render(manual_width, True, WHITE)
@@ -473,7 +535,6 @@ class FamilyFeudGame:
                 cursor_x = 205 + text_width.get_width() + 2
                 pygame.draw.line(modal, WHITE, (cursor_x, 25), (cursor_x, 25 + text_width.get_height()), 2)
 
-            # "Screen Height" label and input field
             modal.blit(font.render("Screen Height:", True, WHITE), (20, 70))
             pygame.draw.rect(modal, WHITE, (200, 70, 150, 30), 2)
             text_height = font.render(manual_height, True, WHITE)
@@ -482,35 +543,39 @@ class FamilyFeudGame:
                 cursor_x = 205 + text_height.get_width() + 2
                 pygame.draw.line(modal, WHITE, (cursor_x, 75), (cursor_x, 75 + text_height.get_height()), 2)
 
-            # Volume slider
-            modal.blit(font.render("Volume:", True, WHITE), (20, 120))
-            pygame.draw.rect(modal, GRAY, (200, 120, 300, 20))
-            vol_ratio = volume / 100
-            knob_x = 200 + int(vol_ratio * 300) - 5
+            # Sound Volume slider
+            modal.blit(font.render("Sound Volume:", True, WHITE), (20, 120))
+            sound_slider_rect = pygame.Rect(200, 120, 300, 20)
+            pygame.draw.rect(modal, GRAY, sound_slider_rect)
+            sound_ratio = sound_volume / 100
+            knob_x = 200 + int(sound_ratio * 300) - 5
             pygame.draw.rect(modal, WHITE, (knob_x, 115, 10, 30))
 
-            # Fullscreen checkbox
-            modal.blit(font.render("Fullscreen:", True, WHITE), (20, 170))
-            pygame.draw.rect(modal, WHITE, (200, 170, 30, 30), 2)
-            if fullscreen:
-                pygame.draw.rect(modal, WHITE, (203, 173, 24, 24))
+            # Music Volume slider
+            modal.blit(font.render("Music Volume:", True, WHITE), (20, 170))
+            music_slider_rect = pygame.Rect(200, 170, 300, 20)
+            pygame.draw.rect(modal, GRAY, music_slider_rect)
+            music_ratio = music_volume / 100
+            music_knob_x = 200 + int(music_ratio * 300) - 5
+            pygame.draw.rect(modal, WHITE, (music_knob_x, 165, 10, 30))
 
-            # Save button
+            # Fullscreen checkbox
+            modal.blit(font.render("Fullscreen:", True, WHITE), (20, 220))
+            pygame.draw.rect(modal, WHITE, (200, 220, 30, 30), 2)
+            if fullscreen:
+                pygame.draw.rect(modal, WHITE, (203, 223, 24, 24))
+
             save_rect = pygame.Rect(modal_w//2 - 50, modal_h - 60, 100, 30)
             pygame.draw.rect(modal, GRAY, save_rect)
             modal.blit(font.render("Сачувај", True, BLACK), (save_rect.x + 5, save_rect.y + 5))
-
-            # Instructions
             modal.blit(font.render("Press ESC to cancel", True, WHITE), (modal_w//2 - 100, modal_h - 25))
 
-            # Blit modal centered on screen (overlaying current background)
             self.screen.fill(BLACK)
             self.draw_background()
             self.screen.blit(modal, (modal_x, modal_y))
             pygame.display.flip()
             self.clock.tick(60)
 
-        # If canceled, do not change settings.
         if canceled:
             return orig_settings
 
@@ -524,7 +589,8 @@ class FamilyFeudGame:
             new_height = self.settings.get("screen_height", 800)
         self.settings["screen_width"] = new_width
         self.settings["screen_height"] = new_height
-        self.settings["volume"] = volume
+        self.settings["volume"] = sound_volume
+        self.settings["music_volume"] = music_volume
         self.settings["fullscreen"] = fullscreen
         self.save_settings()
         return self.settings
@@ -557,6 +623,7 @@ class FamilyFeudGame:
                 elif event.type == KEYDOWN:
                     if event.key == pygame.K_p:
                         self.settings = self.settings_menu()
+                        pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
                         flags = pygame.FULLSCREEN if self.settings["fullscreen"] else 0
                         self.screen = pygame.display.set_mode((self.settings["screen_width"], self.settings["screen_height"]), flags)
                         self.screen_width = self.settings["screen_width"]
@@ -616,6 +683,7 @@ class FamilyFeudGame:
                     elif event.type == KEYDOWN:
                         if event.key == pygame.K_p:
                             self.settings = self.settings_menu()
+                            pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
                             flags = pygame.FULLSCREEN if self.settings["fullscreen"] else 0
                             self.screen = pygame.display.set_mode((self.settings["screen_width"], self.settings["screen_height"]), flags)
                             self.screen_width = self.settings["screen_width"]
@@ -702,10 +770,8 @@ class FamilyFeudGame:
         self.show_confetti(duration=3000)
         pygame.time.wait(5000)
         self.conn.close()
-        # Instead of quitting, return to allow game restart.
         return
 
 if __name__ == "__main__":
-    # Restart the game when it completes.
     while True:
         FamilyFeudGame().run()
