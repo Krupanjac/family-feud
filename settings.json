@@ -1,7 +1,7 @@
 {
     "screen_width": 1200,
     "screen_height": 800,
-    "volume": 7,
+    "volume": 100,
     "fullscreen": false,
-    "music_volume": 0
+    "music_volume": 100
 }
