@@ -1,4 +1,4 @@
-import pygame, sys, sqlite3, os, math, json, random
+import pygame, sys, sqlite3, os, math, json, random, cv2
 from pygame.locals import KEYDOWN, K_ESCAPE, K_x, QUIT, MOUSEBUTTONDOWN, MOUSEMOTION
 
 def resource_path(relative_path):
@@ -27,10 +27,42 @@ GOLD     = (212, 175, 55)
 DARK_RED = (139, 0, 0)
 YELLOW   = (255, 215, 0)
 
-REGULAR  = 36
-QUESTION = 50
-ZOOM_SPEED = 0.0007  # for background effect
+# Font sizes - centralized for easy modification
+REGULAR_SIZE   = 28
+QUESTION_SIZE  = 40
+FOOTER_SIZE    = 20
+HEADER_SIZE    = int(REGULAR_SIZE * 1.2)
+FINAL_SIZE     = 60
+BIG_SIZE       = 300
+SETTINGS_SIZE  = 21
+
 BOARD_VERTICAL_OFFSET = 100  # Shift the question/answers board downward
+
+# Font paths - search in these locations with these filenames
+FONT_PATHS = [
+    "assets/fonts/OpenSans-Regular.ttf",
+    "assets/fonts/Roboto-Regular.ttf"
+]
+
+# Bold font paths
+BOLD_FONT_PATHS = [
+    "assets/fonts/OpenSans-Bold.ttf",
+    "assets/fonts/Roboto-Bold.ttf"
+]
+
+# ----------------- Helper Functions -----------------
+def load_font(font_paths, size, fallback_name=None):
+    """Try to load fonts from the given paths, with fallback to system font."""
+    for path in font_paths:
+        try:
+            full_path = resource_path(path)
+            if os.path.exists(full_path):
+                return pygame.font.Font(full_path, size)
+        except Exception as e:
+            print(f"Could not load font {path}: {e}")
+    
+    # If we get here, none of the custom fonts worked
+    return pygame.font.SysFont(fallback_name, size)
 
 # ----------------- Helper Classes -----------------
 class ConfettiParticle:
@@ -50,27 +82,90 @@ class ConfettiParticle:
     def draw(self, screen):
         pygame.draw.rect(screen, self.color, (int(self.x), int(self.y), self.size, self.size))
 
-class BackgroundEffect:
-    def __init__(self, base_bg):
-        self.base_bg = base_bg
-        self.original_bg = base_bg.copy() if base_bg else None
-        self.zoom_phase = 0
+class VideoBackground:
+    def __init__(self, video_path, fallback_image_path):
+        # Load the fallback image first
+        self.fallback_image = None
+        if os.path.exists(fallback_image_path):
+            self.fallback_image = pygame.image.load(fallback_image_path).convert()
+        
+        # Attempt to load the video
+        self.video_frames = []
+        self.current_frame_index = 0
+        self.frame_delay = 30  # Default ~30 FPS
+        self.last_frame_time = 0
+        self.playing_forward = True  # Track direction of playback
+        
+        if os.path.exists(video_path):
+            try:
+                import cv2
+                self.cap = cv2.VideoCapture(video_path)
+                if not self.cap.isOpened():
+                    print(f"Failed to open video file: {video_path}")
+                else:
+                    self.frame_width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    self.frame_height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+                    if self.fps > 0:
+                        self.frame_delay = int(1000 / self.fps)
+                    
+                    # Pre-load all frames to allow for reverse playback
+                    max_preload_frames = 120  # Approximately 4 seconds at 30fps
+                    for _ in range(max_preload_frames):
+                        ret, frame = self.cap.read()
+                        if not ret:
+                            self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                            ret, frame = self.cap.read()
+                            if not ret:
+                                break
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        pygame_frame = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+                        self.video_frames.append(pygame_frame)
+            except (ImportError, Exception) as e:
+                print(f"Error loading video: {e}")
+        
+        self.is_video_loaded = len(self.video_frames) > 0
 
     def update(self, dt):
-        self.zoom_phase = (self.zoom_phase + ZOOM_SPEED * dt) % math.pi
+        if not self.is_video_loaded or not self.video_frames:
+            return
+        
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_frame_time >= self.frame_delay:
+            self.last_frame_time = current_time
+            
+            # Update frame index based on direction (forward or reverse)
+            if self.playing_forward:
+                self.current_frame_index += 1
+                # If we reach the end, reverse direction
+                if self.current_frame_index >= len(self.video_frames) - 1:
+                    self.playing_forward = False
+            else:
+                self.current_frame_index -= 1
+                # If we reach the beginning, reverse direction
+                if self.current_frame_index <= 0:
+                    self.playing_forward = True
 
-    def get_transformed_bg(self, screen_width, screen_height):
-        if not self.original_bg:
-            return None
-        img_w = self.original_bg.get_width()
-        img_h = self.original_bg.get_height()
-        base_scale = max(screen_width / img_w, screen_height / img_h)
-        zoom_scale = 1.0 + 0.1 * math.sin(self.zoom_phase)
-        final_scale = base_scale * zoom_scale
-        new_w = int(img_w * final_scale)
-        new_h = int(img_h * final_scale)
-        scaled_bg = pygame.transform.smoothscale(self.original_bg, (new_w, new_h))
-        return scaled_bg
+    def get_frame(self, screen_width, screen_height):
+        if self.is_video_loaded and self.video_frames:
+            current_frame = self.video_frames[self.current_frame_index]
+            frame_w, frame_h = current_frame.get_size()
+            scale = max(screen_width / frame_w, screen_height / frame_h)
+            new_w = int(frame_w * scale)
+            new_h = int(frame_h * scale)
+            return pygame.transform.scale(current_frame, (new_w, new_h))
+        elif self.fallback_image:
+            img_w = self.fallback_image.get_width()
+            img_h = self.fallback_image.get_height()
+            scale = max(screen_width / img_w, screen_height / img_h)
+            new_w = int(img_w * scale)
+            new_h = int(img_h * scale)
+            return pygame.transform.scale(self.fallback_image, (new_w, new_h))
+        else:
+            surface = pygame.Surface((screen_width, screen_height))
+            surface.fill(DARK_RED)
+            pygame.draw.circle(surface, YELLOW, (screen_width // 2, screen_height // 2), 100)
+            return surface
 
 # ----------------- Main Game Class -----------------
 class FamilyFeudGame:
@@ -88,27 +183,16 @@ class FamilyFeudGame:
         if os.path.exists(favicon_path):
             icon = pygame.image.load(favicon_path)
             pygame.display.set_icon(icon)
-            
-        self.font_regular = pygame.font.SysFont(None, REGULAR)
-        self.font_question = pygame.font.SysFont(None, QUESTION)
-        self.clock = pygame.time.Clock()
-        self.correct_sound = self.load_sound("assets/correct.wav")
-        self.wrong_sound = self.load_sound("assets/wrong.wav")
-        if self.correct_sound:
-            self.correct_sound.set_volume(self.settings.get("volume", 100) / 100)
-        if self.wrong_sound:
-            self.wrong_sound.set_volume(0.4 * self.settings.get("volume", 100) / 100)
         
-        music_path = resource_path("assets/music.wav")
-        if os.path.exists(music_path):
-            pygame.mixer.music.load(music_path)
-            pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
-            pygame.mixer.music.play(-1)  # loop indefinitely
-
+        self.clock = pygame.time.Clock()
+        # Display a simple initialization screen
+        self.show_loading_screen()
+        # Load assets (fonts, video, sounds, music) with a loading bar
+        self.load_assets()
+        
         self.conn = self.init_db()
         self.team1_name, self.team2_name = self.load_team_names()
-        self.background = self.load_background()
-        self.bg_effect = BackgroundEffect(self.background)
+        
         self.total_team1 = 0
         self.total_team2 = 0
         self.round_results = []
@@ -118,35 +202,115 @@ class FamilyFeudGame:
         self.glaze_start_time = None
         self.last_glazed_index = None
 
-    # Settings I/O
-    def load_settings(self):
-        settings_file = "settings.json"
-        if os.path.exists(settings_file):
-            with open(settings_file, "r") as f:
-                return json.load(f)
-        return DEFAULT_SETTINGS.copy()
+    def show_loading_screen(self):
+        # Display an initial message while the assets are about to load.
+        self.screen.fill(BLACK)
+        basic_font = pygame.font.SysFont("Roboto", 30)
+        loading_text = basic_font.render("Иницијализација...", True, WHITE)
 
-    def save_settings(self):
-        with open("settings.json", "w") as f:
-            json.dump(self.settings, f, indent=4)
-
-    # Resource loading
-    def load_background(self):
-        bg_filename = resource_path("assets/background.jpg")
-        if os.path.exists(bg_filename):
-            bg = pygame.image.load(bg_filename).convert()
-            current_width, current_height = self.screen.get_size()
-            base_scale = max(current_width / bg.get_width(), current_height / bg.get_height())
-            scale_factor = base_scale * 1.1
-            new_w = int(bg.get_width() * scale_factor)
-            new_h = int(bg.get_height() * scale_factor)
-            bg = pygame.transform.smoothscale(bg, (new_w, new_h))
-            return bg
+    def draw_loading_bar(self, progress):
+        # Try to load the background image
+        loader_path = resource_path("assets/loader.png")
+        if os.path.exists(loader_path):
+            try:
+                loader_bg = pygame.image.load(loader_path)
+                self.screen.blit(loader_bg, (-25, 100))
+            except Exception as e:
+                # If loading fails, fall back to black background
+                print(f"Could not load loader.png: {e}")
+                self.screen.fill(BLACK)
         else:
-            bg = pygame.Surface((self.screen_width, self.screen_height))
-            bg.fill(DARK_RED)
-            pygame.draw.circle(bg, YELLOW, (self.screen_width // 2, self.screen_height // 2), 100)
-            return bg
+            # If the image doesn't exist, use black background
+            self.screen.fill(BLACK)
+        # Define dimensions for the loading bar
+        bar_width = self.screen_width // 2
+        bar_height = 30
+        bar_x = (self.screen_width - bar_width) // 2
+        bar_y = (self.screen_height - bar_height) - 200
+        
+        # Colors for the modern look
+        bg_color = (30, 30, 30)         # Dark grey background for the bar
+        fill_color = DARK_RED               # The main fill color (blue)
+        shadow_color = (20, 20, 20)       # A dark shade for the shadow
+        
+        # Draw a subtle drop shadow (offset by a few pixels)
+        shadow_offset = 4
+        shadow_rect = pygame.Rect(
+            bar_x + shadow_offset, 
+            bar_y + shadow_offset, 
+            bar_width, 
+            bar_height
+        )
+        pygame.draw.rect(self.screen, shadow_color, shadow_rect, border_radius=15)
+        
+        # Draw the background of the loading bar with rounded corners
+        bar_rect = pygame.Rect(bar_x, bar_y, bar_width, bar_height)
+        pygame.draw.rect(self.screen, bg_color, bar_rect, border_radius=15)
+        
+        # Calculate fill width based on progress and draw the progress fill
+        fill_width = int(progress * bar_width)
+        if fill_width > 0:
+            fill_rect = pygame.Rect(bar_x, bar_y, fill_width, bar_height)
+            pygame.draw.rect(self.screen, fill_color, fill_rect, border_radius=15)
+            
+            # Add a glossy highlight on the top half to simulate shine
+            highlight_rect = pygame.Rect(bar_x, bar_y, fill_width, bar_height // 2)
+            highlight_surface = pygame.Surface((fill_width, bar_height // 2), pygame.SRCALPHA)
+            highlight_surface.fill((255, 255, 255, 50))  # Semi-transparent white overlay
+            self.screen.blit(highlight_surface, (bar_x, bar_y))
+        
+        # Render the loading text above the bar
+        font = pygame.font.SysFont("Roboto", 24)
+        loading_text = font.render("Иницијализација...", True, WHITE)
+        text_rect = loading_text.get_rect(center=(self.screen_width // 2, bar_y - 20))
+        self.screen.blit(loading_text, text_rect)
+        
+        # Update the display
+        pygame.display.flip()
+
+
+    def load_assets(self):
+        total_steps = 4
+        current_step = 0
+
+        # Step 1: Load fonts
+        self.font_regular = load_font(FONT_PATHS, REGULAR_SIZE, "Roboto")
+        self.font_question = load_font(BOLD_FONT_PATHS, QUESTION_SIZE, "Roboto")
+        self.font_footer = load_font(FONT_PATHS, FOOTER_SIZE, "Roboto")
+        current_step += 1
+        self.draw_loading_bar(current_step / total_steps)
+        pygame.time.wait(200)
+
+        # Step 2: Load video background
+        video_path = resource_path("assets/background.mp4")
+        fallback_image_path = resource_path("assets/background.jpg")
+        self.video_bg = VideoBackground(video_path, fallback_image_path)
+        current_step += 1
+        self.draw_loading_bar(current_step / total_steps)
+        pygame.time.wait(200)
+
+        # Step 3: Load sounds
+        self.correct_sound = self.load_sound("assets/correct.wav")
+        self.wrong_sound = self.load_sound("assets/wrong.wav")
+        if self.correct_sound:
+            self.correct_sound.set_volume(self.settings.get("volume", 100) / 100)
+        if self.wrong_sound:
+            self.wrong_sound.set_volume(0.4 * self.settings.get("volume", 100) / 100)
+        current_step += 1
+        self.draw_loading_bar(current_step / total_steps)
+        pygame.time.wait(200)
+
+        # Step 4: Load music
+        music_path = resource_path("assets/music.wav")
+        if os.path.exists(music_path):
+            pygame.mixer.music.load(music_path)
+            pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
+        current_step += 1
+        self.draw_loading_bar(current_step / total_steps)
+        pygame.time.wait(200)
+
+        # Start playing music after loading is complete
+        pygame.mixer.music.play(-1)
 
     def load_sound(self, filename):
         path = resource_path(filename)
@@ -181,19 +345,17 @@ class FamilyFeudGame:
                     return lines[0], lines[1]
         return "Тим1", "Тим2"
 
-    # Drawing helpers
     def draw_footer(self):
-        footer_font = pygame.font.SysFont(None, 20, italic=True)
-        footer_text = footer_font.render("РГ за истраживачко-развојне делатности, ЕТФ, 2025 ©", True, GOLD)
+        footer_text = self.font_footer.render("РГ за истраживачко-развојне делатности, ЕТФ, 2025 ©", True, GOLD)
         self.screen.blit(footer_text, (self.screen_width - footer_text.get_width() - 10,
-                                       self.screen_height - footer_text.get_height() - 10))
+                                      self.screen_height - footer_text.get_height() - 10))
 
     def draw_background(self):
         current_width, current_height = self.screen.get_size()
-        if self.bg_effect.original_bg:
-            scaled_bg = self.bg_effect.get_transformed_bg(current_width, current_height)
-            rect = scaled_bg.get_rect(center=(current_width // 2, current_height // 2))
-            self.screen.blit(scaled_bg, rect)
+        self.video_bg.update(0)
+        frame = self.video_bg.get_frame(current_width, current_height)
+        rect = frame.get_rect(center=(current_width // 2, current_height // 2))
+        self.screen.blit(frame, rect)
 
     @staticmethod
     def screen_shake_offset(intensity=10):
@@ -209,7 +371,7 @@ class FamilyFeudGame:
                 break
             self.draw_background()
             overlay = pygame.Surface(current_size)
-            overlay.fill(DARK_RED)
+            overlay.fill(GRAY)
             alpha = int((elapsed / duration) * 255) if fade_in else 255 - int((elapsed / duration) * 255)
             overlay.set_alpha(alpha)
             self.screen.blit(overlay, (0, 0))
@@ -223,7 +385,7 @@ class FamilyFeudGame:
             winner = f"Победник: {self.team1_name}" if self.total_team1 > self.total_team2 else f"Победник: {self.team2_name}"
         particles = [ConfettiParticle(random.randint(0, self.screen_width), 0) for _ in range(150)]
         start_time = pygame.time.get_ticks()
-        final_font = pygame.font.SysFont(None, 60)
+        final_font = load_font(BOLD_FONT_PATHS, FINAL_SIZE, "Roboto")
         while pygame.time.get_ticks() - start_time < duration:
             self.draw_background()
             for p in particles:
@@ -231,7 +393,7 @@ class FamilyFeudGame:
                 p.draw(self.screen)
             final_msg = f"Коначни резултат - {self.team1_name}: {self.total_team1} | {self.team2_name}: {self.total_team2}"
             final_surf = final_font.render(final_msg, True, WHITE)
-            winner_surf = final_font.render(winner, True, BLUE)
+            winner_surf = final_font.render(winner, True, DARK_RED)
             self.screen.blit(final_surf, ((self.screen_width - final_surf.get_width()) // 2, self.screen_height // 2 - 50))
             self.screen.blit(winner_surf, ((self.screen_width - winner_surf.get_width()) // 2, self.screen_height // 2 + 20))
             self.draw_footer()
@@ -243,7 +405,7 @@ class FamilyFeudGame:
         popup = pygame.Surface((popup_w, popup_h))
         popup.fill((30, 30, 30))
         popup.set_alpha(240)
-        header_font = pygame.font.SysFont(None, int(REGULAR * 1.2))
+        header_font = load_font(BOLD_FONT_PATHS, HEADER_SIZE, "Roboto")
         header_surf = header_font.render("Рунда Завршена", True, GOLD)
         popup.blit(header_surf, header_surf.get_rect(center=(popup_w // 2, 30)))
         scoreboard = f"Скор: {self.total_team1}:{self.total_team2}"
@@ -282,7 +444,7 @@ class FamilyFeudGame:
         start_time = pygame.time.get_ticks()
         duration = 1250
         intensity = 10
-        big_font = pygame.font.SysFont(None, 300)
+        big_font = load_font(BOLD_FONT_PATHS, BIG_SIZE, "Roboto")
         orig_x = big_font.render("X", True, RED).convert_alpha()
         orig_x.set_colorkey((0, 0, 0))
         while pygame.time.get_ticks() - start_time < duration:
@@ -393,7 +555,7 @@ class FamilyFeudGame:
         self.screen.blit(self.font_regular.render(strikes_text, True, RED), (50, self.screen_height - 50))
         if state == "opponent":
             opp_text = "Шанса противника!"
-            self.screen.blit(self.font_regular.render(opp_text, True, BLUE), (50, self.screen_height - 100))
+            self.screen.blit(self.font_regular.render(opp_text, True, GRAY), (50, self.screen_height - 100))
         self.draw_footer()
         pygame.display.flip()
         return rects
@@ -417,7 +579,7 @@ class FamilyFeudGame:
         fullscreen = self.settings.get("fullscreen", False)
         width_active = False
         height_active = False
-        font = pygame.font.SysFont(None, 32)
+        font = load_font(FONT_PATHS, SETTINGS_SIZE, "Roboto")
         canceled = False
         running = True
         while running:
@@ -505,17 +667,19 @@ class FamilyFeudGame:
             modal.blit(font.render("Ширина:", True, WHITE), (20, 20))
             pygame.draw.rect(modal, WHITE, (200, 20, 150, 30), 2)
             text_width = font.render(manual_width, True, WHITE)
-            modal.blit(text_width, (205, 25))
+            # Moved up by 5 pixels: y-coordinate changed from 25 to 20
+            modal.blit(text_width, (205, 20))
             if width_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_width.get_width() + 2
-                pygame.draw.line(modal, WHITE, (cursor_x, 25), (cursor_x, 25 + text_width.get_height()), 2)
+                pygame.draw.line(modal, WHITE, (cursor_x, 20), (cursor_x, 20 + text_width.get_height()), 2)
             modal.blit(font.render("Висина:", True, WHITE), (20, 70))
             pygame.draw.rect(modal, WHITE, (200, 70, 150, 30), 2)
             text_height = font.render(manual_height, True, WHITE)
-            modal.blit(text_height, (205, 75))
+            # Moved up by 5 pixels: y-coordinate changed from 75 to 70
+            modal.blit(text_height, (205, 70))
             if height_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_height.get_width() + 2
-                pygame.draw.line(modal, WHITE, (cursor_x, 75), (cursor_x, 75 + text_height.get_height()), 2)
+                pygame.draw.line(modal, WHITE, (cursor_x, 70), (cursor_x, 70 + text_height.get_height()), 2)
             modal.blit(font.render("Звук:", True, WHITE), (20, 120))
             sound_slider_rect = pygame.Rect(200, 120, 300, 20)
             pygame.draw.rect(modal, GRAY, sound_slider_rect)
@@ -534,8 +698,8 @@ class FamilyFeudGame:
                 pygame.draw.rect(modal, WHITE, (203, 223, 24, 24))
             save_rect = pygame.Rect(modal_w // 2 - 50, modal_h - 60, 100, 30)
             pygame.draw.rect(modal, GRAY, save_rect)
-            modal.blit(font.render("Сачувај", True, BLACK), (save_rect.x + 5, save_rect.y + 5))
-            modal.blit(font.render("Притисни ESC за повратак назад", True, WHITE), (modal_w // 2 - 200, modal_h - 25))
+            modal.blit(font.render("Сачувај", True, BLACK), (save_rect.x + 10, save_rect.y))
+            modal.blit(font.render("Притисни ESC за повратак назад", True, WHITE), (modal_w // 2 - 180, modal_h - 30))
             self.screen.fill(BLACK)
             self.draw_background()
             self.screen.blit(modal, (modal_x, modal_y))
@@ -559,6 +723,18 @@ class FamilyFeudGame:
         self.save_settings()
         return self.settings
 
+
+    def load_settings(self):
+        settings_file = "settings.json"
+        if os.path.exists(settings_file):
+            with open(settings_file, "r") as f:
+                return json.load(f)
+        return DEFAULT_SETTINGS.copy()
+
+    def save_settings(self):
+        with open("settings.json", "w") as f:
+            json.dump(self.settings, f, indent=4)
+
     def choose_team(self, total_team1, total_team2):
         selecting = True
         current_x = -300
@@ -568,35 +744,45 @@ class FamilyFeudGame:
             dt = pygame.time.get_ticks() - last_time
             last_time = pygame.time.get_ticks()
             current_x = min(target_x, current_x + dt * 0.5)
-            self.bg_effect.update(dt)
-            self.screen.fill(BLACK)
+            
+            # Instead of filling with black, draw the video background.
             self.draw_background()
+            
             prompt1 = "Који тим игра у овој рунди?"
             prompt2 = f"Притисните 1 за {self.team1_name} или 2 за {self.team2_name}"
-            self.screen.blit(self.font_regular.render(prompt1, True, WHITE), (current_x, self.screen_height // 2 - 60))
-            self.screen.blit(self.font_regular.render(prompt2, True, WHITE), (current_x, self.screen_height // 2))
+            self.screen.blit(self.font_regular.render(prompt1, True, WHITE), 
+                            (current_x, self.screen_height // 2 - 60))
+            self.screen.blit(self.font_regular.render(prompt2, True, WHITE), 
+                            (current_x, self.screen_height // 2))
+            
             scoreboard = f"Резултат уживо - {self.team1_name}: {total_team1} | {self.team2_name}: {total_team2}"
-            self.screen.blit(self.font_regular.render(scoreboard, True, WHITE), (self.screen_width // 3, self.screen_height // 80))
+            self.screen.blit(self.font_regular.render(scoreboard, True, WHITE), 
+                            (self.screen_width // 3, self.screen_height // 80))
+            
             hint = self.font_regular.render("Притисни П да отвориш опције", True, WHITE)
             self.screen.blit(hint, (50, self.screen_height - 50))
+            
             self.draw_footer()
             pygame.display.flip()
+            
             for event in pygame.event.get():
                 if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                     pygame.quit(); sys.exit()
                 elif event.type == KEYDOWN:
                     if event.key == pygame.K_p:
+                        # Open settings menu
                         self.settings = self.settings_menu()
                         pygame.mixer.music.set_volume(self.settings.get("music_volume", 100) / 100)
                         flags = pygame.FULLSCREEN if self.settings["fullscreen"] else 0
-                        self.screen = pygame.display.set_mode((self.settings["screen_width"], self.settings["screen_height"]), flags)
+                        self.screen = pygame.display.set_mode(
+                            (self.settings["screen_width"], self.settings["screen_height"]), flags)
                         self.screen_width = self.settings["screen_width"]
                         self.screen_height = self.settings["screen_height"]
                         if self.wrong_sound:
                             self.wrong_sound.set_volume(0.4 * (self.settings.get("volume", 100) / 100))
                         if self.correct_sound:
                             self.correct_sound.set_volume(self.settings.get("volume", 100) / 100)
-                        self.font_regular = pygame.font.SysFont(None, REGULAR)
+                        self.apply_font_settings()
                         continue
                     elif event.unicode == '1':
                         if self.correct_sound:
@@ -608,8 +794,14 @@ class FamilyFeudGame:
                             self.correct_sound.play()
                         self.fade_transition(fade_in=False, duration=500)
                         return 2
+            
             self.clock.tick(60)
-        return 1
+
+    def apply_font_settings(self):
+        """Update fonts after settings changes"""
+        self.font_regular = load_font(FONT_PATHS, REGULAR_SIZE, "Roboto")
+        self.font_question = load_font(BOLD_FONT_PATHS, QUESTION_SIZE, "Roboto")
+        self.font_footer = load_font(FONT_PATHS, FOOTER_SIZE, "Roboto")
 
     def run(self):
         for round_num in range(1, 6):
@@ -639,7 +831,7 @@ class FamilyFeudGame:
             while True:
                 dt = pygame.time.get_ticks() - last_time
                 last_time = pygame.time.get_ticks()
-                self.bg_effect.update(dt)
+                self.video_bg.update(0)
                 rects = self.draw_board(question, answers, strikes, state, active_team)
                 for event in pygame.event.get():
                     if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
@@ -656,7 +848,7 @@ class FamilyFeudGame:
                                 self.wrong_sound.set_volume(0.4 * (self.settings.get("volume", 100) / 100))
                             if self.correct_sound:
                                 self.correct_sound.set_volume(self.settings.get("volume", 100) / 100)
-                            self.font_regular = pygame.font.SysFont(None, REGULAR)
+                            self.apply_font_settings()
                             continue
                         elif state == "active":
                             if event.unicode.isdigit():
