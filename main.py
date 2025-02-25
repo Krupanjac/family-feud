@@ -206,7 +206,7 @@ class FamilyFeudGame:
         # Display an initial message while the assets are about to load.
         self.screen.fill(BLACK)
         basic_font = pygame.font.SysFont("Roboto", 30)
-        loading_text = basic_font.render("Иницијализација...", True, WHITE)
+        loading_text = basic_font.render("Учитавање...", True, WHITE)
     def draw_loading_bar(self, progress):
         # Try to load the background image
         loader_path = resource_path("assets/loader.png")
@@ -260,7 +260,7 @@ class FamilyFeudGame:
         
         # Render the loading text above the bar
         font = pygame.font.SysFont("Roboto", 24)
-        loading_text = font.render("Иницијализација...", True, WHITE)
+        loading_text = font.render("Учитавам...", True, WHITE)
         text_rect = loading_text.get_rect(center=(self.screen_width // 2, bar_y - 20))
         self.screen.blit(loading_text, text_rect)
         
