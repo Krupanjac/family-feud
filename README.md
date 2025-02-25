@@ -1,8 +1,8 @@
 # Породични Дуел! РГДЕВ - ЕТФ
 
-![FF_SCREEN_ETF](https://i.imgur.com/VnjK0Ve.png)
-![FF_SCREEN2_ETF](https://i.imgur.com/UbtEK7J.png)
-
+![FF_SCREEN_ETF](https://i.imgur.com/CJIVWkb.png)
+![FF_SCREEN2_ETF](https://i.imgur.com/wgrIKox.png)
+![FF_SCREEN3_ETF](https://i.imgur.com/UynYrL9.png)
 **Породични Дуел!** је игра у стилу Family Feud развијена у Python-у користећи [Pygame](https://www.pygame.org/). Два тима се такмиче откривањем одговора из анкетних питања, прикупљањем поена и освајањем рунди одговарањем на питања која се учитавају из текстуалних фајлова. Овај пројекат је дизајниран за догађајне сврхе на Електротехничком факултету (ЕТФ) и користи српски језик за све текстове у игри.
 
 ---
