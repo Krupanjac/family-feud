@@ -207,7 +207,6 @@ class FamilyFeudGame:
         self.screen.fill(BLACK)
         basic_font = pygame.font.SysFont("Roboto", 30)
         loading_text = basic_font.render("Иницијализација...", True, WHITE)
-
     def draw_loading_bar(self, progress):
         # Try to load the background image
         loader_path = resource_path("assets/loader.png")
@@ -379,6 +378,14 @@ class FamilyFeudGame:
             clock.tick(60)
 
     def show_confetti(self, duration=3000):
+        # Stop current background music and start victory music.
+        pygame.mixer.music.stop()
+        victory_music_path = resource_path("assets/victory.wav")
+        if os.path.exists(victory_music_path):
+            pygame.mixer.music.load(victory_music_path)
+            pygame.mixer.music.play(-1)  # Loop indefinitely until game restart
+
+        # Existing victory screen logic:
         if self.total_team1 == self.total_team2:
             winner = "Нерешено!"
         else:
@@ -667,7 +674,6 @@ class FamilyFeudGame:
             modal.blit(font.render("Ширина:", True, WHITE), (20, 20))
             pygame.draw.rect(modal, WHITE, (200, 20, 150, 30), 2)
             text_width = font.render(manual_width, True, WHITE)
-            # Moved up by 5 pixels: y-coordinate changed from 25 to 20
             modal.blit(text_width, (205, 20))
             if width_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_width.get_width() + 2
@@ -675,7 +681,6 @@ class FamilyFeudGame:
             modal.blit(font.render("Висина:", True, WHITE), (20, 70))
             pygame.draw.rect(modal, WHITE, (200, 70, 150, 30), 2)
             text_height = font.render(manual_height, True, WHITE)
-            # Moved up by 5 pixels: y-coordinate changed from 75 to 70
             modal.blit(text_height, (205, 70))
             if height_active and (pygame.time.get_ticks() // 500) % 2 == 0:
                 cursor_x = 205 + text_height.get_width() + 2
@@ -722,7 +727,6 @@ class FamilyFeudGame:
         self.settings["fullscreen"] = fullscreen
         self.save_settings()
         return self.settings
-
 
     def load_settings(self):
         settings_file = "settings.json"
