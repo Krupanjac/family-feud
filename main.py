@@ -185,8 +185,6 @@ class FamilyFeudGame:
             pygame.display.set_icon(icon)
         
         self.clock = pygame.time.Clock()
-        # Display a simple initialization screen
-        self.show_loading_screen()
         # Load assets (fonts, video, sounds, music) with a loading bar
         self.load_assets()
         
@@ -202,11 +200,6 @@ class FamilyFeudGame:
         self.glaze_start_time = None
         self.last_glazed_index = None
 
-    def show_loading_screen(self):
-        # Display an initial message while the assets are about to load.
-        self.screen.fill(BLACK)
-        basic_font = pygame.font.SysFont("Roboto", 30)
-        loading_text = basic_font.render("Учитавање...", True, WHITE)
     def draw_loading_bar(self, progress):
         # Try to load the background image
         loader_path = resource_path("assets/loader.png")
